@@ -1,22 +1,42 @@
 const express = require("express");
 const mysql = require("mysql2");
+const multer = require("multer");
 
 const app = express();
 
-// Allow Express to read form data
+// --------------------------------------------------
+// Express settings
+// --------------------------------------------------
+
 app.use(express.urlencoded({
     extended: false
 }));
 
-// Allow Express to access files inside public folder
 app.use(express.static("public"));
 
-// Set EJS as the view engine
 app.set("view engine", "ejs");
 
+// --------------------------------------------------
+// Multer settings
+// Uploaded images will be saved in public/images
+// --------------------------------------------------
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, "public/images");
+    },
+
+    filename: (req, file, cb) => {
+        cb(null, file.originalname);
+    }
+});
+
+const upload = multer({
+    storage: storage
+});
 
 // --------------------------------------------------
-// Database connection
+// MySQL connection
 // --------------------------------------------------
 
 const connection = mysql.createConnection({
@@ -27,151 +47,47 @@ const connection = mysql.createConnection({
 });
 
 connection.connect((err) => {
-
     if (err) {
+        console.error(
+            "Error connecting to MySQL:",
+            err
+        );
 
-        console.log(err);
-
-    } else {
-
-        console.log("Connected to MySQL database");
-
+        return;
     }
 
+    console.log(
+        "Connected to MySQL database"
+    );
 });
-
 
 // --------------------------------------------------
 // READ: Display all students
 // --------------------------------------------------
 
 app.get("/", (req, res) => {
-
     const sql = "SELECT * FROM student";
 
-    connection.query(sql, (error, results) => {
+    connection.query(
+        sql,
+        (error, results) => {
+            if (error) {
+                console.error(error);
+                return res.send(error);
+            }
 
-        if (error) {
-
-            console.log(error);
-
-            return res.send(error);
-
+            res.render("index", {
+                students: results
+            });
         }
-
-        res.render("index", {
-            students: results
-        });
-
-    });
-
+    );
 });
-
 
 // --------------------------------------------------
 // READ: Display one student
 // --------------------------------------------------
 
 app.get("/student/:id", (req, res) => {
-
-    const id = req.params.id;
-
-    const sql =
-        "SELECT * FROM student WHERE studentId = ?";
-
-    connection.query(
-        sql,
-        [id],
-        (error, results) => {
-
-            if (error) {
-
-                console.log(error);
-
-                return res.send(error);
-
-            }
-
-            if (results.length > 0) {
-
-                res.render("student", {
-                    student: results[0]
-                });
-
-            } else {
-
-                res.send("Student not found");
-
-            }
-
-        }
-    );
-
-});
-
-
-// --------------------------------------------------
-// CREATE: Display Add Student page
-// --------------------------------------------------
-
-app.get("/addStudent", (req, res) => {
-
-    res.render("addStudent");
-
-});
-
-
-// --------------------------------------------------
-// CREATE: Add new student
-// --------------------------------------------------
-
-app.post("/addStudent", (req, res) => {
-
-    const {
-        name,
-        dob,
-        contact,
-        image
-    } = req.body;
-
-    const sql = `
-        INSERT INTO student
-        (name, dob, contact, image)
-        VALUES (?, ?, ?, ?)
-    `;
-
-    connection.query(
-        sql,
-        [
-            name,
-            dob,
-            contact,
-            image
-        ],
-        (error, results) => {
-
-            if (error) {
-
-                console.log(error);
-
-                return res.send(error);
-
-            }
-
-            res.redirect("/");
-
-        }
-    );
-
-});
-
-
-// --------------------------------------------------
-// UPDATE: Display Edit Student page
-// --------------------------------------------------
-
-app.get("/editStudent/:id", (req, res) => {
-
     const studentId = req.params.id;
 
     const sql =
@@ -181,101 +97,180 @@ app.get("/editStudent/:id", (req, res) => {
         sql,
         [studentId],
         (error, results) => {
-
             if (error) {
+                console.error(error);
+                return res.send(error);
+            }
 
-                console.error(
-                    "Database query error:",
-                    error
-                );
+            if (results.length > 0) {
+                res.render("student", {
+                    student: results[0]
+                });
+            } else {
+                res.send("Student not found");
+            }
+        }
+    );
+});
+
+// --------------------------------------------------
+// CREATE: Display Add Student page
+// --------------------------------------------------
+
+app.get("/addStudent", (req, res) => {
+    res.render("addStudent");
+});
+
+// --------------------------------------------------
+// CREATE: Add new student with uploaded image
+// --------------------------------------------------
+
+app.post(
+    "/addStudent",
+    upload.single("image"),
+    (req, res) => {
+        const {
+            name,
+            dob,
+            contact
+        } = req.body;
+
+        let image = null;
+
+        if (req.file) {
+            image = req.file.filename;
+        }
+
+        const sql = `
+            INSERT INTO student
+            (name, dob, contact, image)
+            VALUES (?, ?, ?, ?)
+        `;
+
+        connection.query(
+            sql,
+            [
+                name,
+                dob,
+                contact,
+                image
+            ],
+            (error, results) => {
+                if (error) {
+                    console.error(
+                        "Error adding student:",
+                        error
+                    );
+
+                    return res.send(
+                        "Error adding student"
+                    );
+                }
+
+                res.redirect("/");
+            }
+        );
+    }
+);
+
+// --------------------------------------------------
+// UPDATE: Display Edit Student page
+// --------------------------------------------------
+
+app.get("/editStudent/:id", (req, res) => {
+    const studentId = req.params.id;
+
+    const sql =
+        "SELECT * FROM student WHERE studentId = ?";
+
+    connection.query(
+        sql,
+        [studentId],
+        (error, results) => {
+            if (error) {
+                console.error(error);
 
                 return res.send(
                     "Error retrieving student"
                 );
-
             }
 
             if (results.length > 0) {
-
                 res.render("editStudent", {
                     student: results[0]
                 });
-
             } else {
-
                 res.send("Student not found");
-
             }
-
         }
     );
-
 });
 
-
 // --------------------------------------------------
-// UPDATE: Update student in database
+// UPDATE: Update student and optional image
 // --------------------------------------------------
 
-app.post("/editStudent/:id", (req, res) => {
+app.post(
+    "/editStudent/:id",
+    upload.single("image"),
+    (req, res) => {
+        const studentId = req.params.id;
 
-    const studentId = req.params.id;
-
-    const {
-        name,
-        dob,
-        contact,
-        image
-    } = req.body;
-
-    const sql = `
-        UPDATE student
-        SET
-            name = ?,
-            dob = ?,
-            contact = ?,
-            image = ?
-        WHERE studentId = ?
-    `;
-
-    connection.query(
-        sql,
-        [
+        const {
             name,
             dob,
             contact,
-            image,
-            studentId
-        ],
-        (error, results) => {
+            currentImage
+        } = req.body;
 
-            if (error) {
+        let image = currentImage;
 
-                console.error(
-                    "Error updating student:",
-                    error
-                );
-
-                return res.send(
-                    "Error updating student"
-                );
-
-            }
-
-            res.redirect("/");
-
+        if (req.file) {
+            image = req.file.filename;
         }
-    );
 
-});
+        const sql = `
+            UPDATE student
+            SET
+                name = ?,
+                dob = ?,
+                contact = ?,
+                image = ?
+            WHERE studentId = ?
+        `;
 
+        connection.query(
+            sql,
+            [
+                name,
+                dob,
+                contact,
+                image,
+                studentId
+            ],
+            (error, results) => {
+                if (error) {
+                    console.error(
+                        "Error updating student:",
+                        error
+                    );
+
+                    return res.send(
+                        "Error updating student"
+                    );
+                }
+
+                res.redirect("/");
+            }
+        );
+    }
+);
 
 // --------------------------------------------------
-// DELETE: Delete student from database
+// DELETE: Delete student
 // --------------------------------------------------
 
 app.get("/deleteStudent/:id", (req, res) => {
-
     const studentId = req.params.id;
 
     const sql =
@@ -285,9 +280,7 @@ app.get("/deleteStudent/:id", (req, res) => {
         sql,
         [studentId],
         (error, results) => {
-
             if (error) {
-
                 console.error(
                     "Error deleting student:",
                     error
@@ -296,16 +289,12 @@ app.get("/deleteStudent/:id", (req, res) => {
                 return res.send(
                     "Error deleting student"
                 );
-
             }
 
             res.redirect("/");
-
         }
     );
-
 });
-
 
 // --------------------------------------------------
 // Start server
@@ -314,9 +303,7 @@ app.get("/deleteStudent/:id", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-
     console.log(
         `Server running at http://localhost:${PORT}`
     );
-
 });
